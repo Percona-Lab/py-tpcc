@@ -187,6 +187,20 @@ TABLE_INDEXES = {
     ],
 }
 
+
+def sanitize_key_names(i):
+        def _replace(str):
+            return str.replace('$', '_')
+
+        if type(i) is dict:
+            for key in i.keys():
+                _t = _replace(key)
+                i[_t] = i.pop(key)
+
+                if type(i[_t]) is dict:
+                    i[_t] = sanitize_key_names(i[_t])
+        return i
+
 ## ==============================================
 ## MongodbDriver
 ## ==============================================
@@ -1129,7 +1143,7 @@ class MongodbDriver(AbstractDriver):
                 logging.debug("txn retry number for %s: %d", name, txn_retry_counter)
             ## WHILE
     def get_server_status(self):
-        ss=self.client.admin.command('serverStatus')
+        ss=sanitize_key_names(self.client.admin.command('serverStatus'))
         if "$configServerState" in ss:
            del ss["$configServerState"]
         if "$gleStats" in ss:

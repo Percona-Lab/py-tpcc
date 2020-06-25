@@ -247,8 +247,8 @@ class Results:
                 u"%6.2f" % (1000.0*lat[-1]),
                 str(driver.write_concern), ('false', 'true')[driver.causal_consistency],
                 ('false', 'true')[driver.all_in_one_txn], ('false', 'true')[driver.retry_writes],total_cnt,total_aborts)
-        #if driver:
-        #    driver.save_result(result_doc)
+        if driver:
+            driver.save_result(result_doc)
         print(result_doc)
         return ret.encode('ascii', "ignore")
 ## CLASS
