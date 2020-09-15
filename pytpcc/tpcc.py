@@ -35,6 +35,7 @@ import argparse
 import glob
 import time
 import multiprocessing
+from multiprocessing.managers import BaseManager
 from ConfigParser import SafeConfigParser
 from pprint import pprint, pformat
 
@@ -131,14 +132,14 @@ def loaderFunc(driverClass, scaleParameters, args, config, w_ids):
 ## ==============================================
 ## startExecution
 ## ==============================================
-def startExecution(driverClass, scaleParameters, args, config):
+def startExecution(driverClass, scaleParameters, globalResults, args, config):
     logging.debug("Creating client pool with %d processes", args['clients'])
     pool = multiprocessing.Pool(args['clients'])
     debug = logging.getLogger().isEnabledFor(logging.DEBUG)
 
     worker_results = []
     for _ in range(args['clients']):
-        r = pool.apply_async(executorFunc, (driverClass, scaleParameters, args, config, debug,))
+        r = pool.apply_async(executorFunc, (driverClass, scaleParameters, globalResults, args, config, debug,))
         worker_results.append(r)
     ## FOR
     pool.close()
@@ -146,13 +147,13 @@ def startExecution(driverClass, scaleParameters, args, config):
 
     total_results = results.Results()
     for asyncr in worker_results:
-        asyncr.wait()
-        r = asyncr.get()
-        assert r != None, "No results object returned by thread!"
-        if r == -1:
-            sys.exit(1)
-        total_results.append(r)
-    ## FOR
+         asyncr.wait()
+         r = asyncr.get()
+         assert r != None, "No results object returned by thread!"
+         if r == -1:
+             sys.exit(1)
+         total_results.append(r)
+    # ## FOR
 
     return total_results
 ## DEF
@@ -160,7 +161,7 @@ def startExecution(driverClass, scaleParameters, args, config):
 ## ==============================================
 ## executorFunc
 ## ==============================================
-def executorFunc(driverClass, scaleParameters, args, config, debug):
+def executorFunc(driverClass, scaleParameters, globalResults, args, config, debug):
     driver = driverClass(args['ddl'])
     assert driver != None, "No driver in executorFunc"
     logging.debug("Starting client execution: %s", driver)
@@ -169,13 +170,21 @@ def executorFunc(driverClass, scaleParameters, args, config, debug):
     config['reset'] = False
     driver.loadConfig(config)
 
-    e = executor.Executor(driver, scaleParameters, stop_on_error=args['stop_on_error'])
+    e = executor.Executor(driver, scaleParameters, globalResults, stop_on_error=args['stop_on_error'])
     driver.executeStart()
     results = e.execute(args['duration'])
     driver.executeFinish()
 
     return results
 ## DEF
+
+def resultWatcher(globalResults):
+    while True and args['report_interval'] > 0:
+        start = globalResults.startBenchmark()
+        time.sleep(args['report_interval'])
+        globalResults.stopBenchmark()
+        logging.info(globalResults.show())
+        globalResults.reset()
 
 ## ==============================================
 ## main
@@ -194,6 +203,8 @@ if __name__ == '__main__':
                          help='Number of Warehouses')
     aparser.add_argument('--duration', default=60, type=int, metavar='D',
                          help='How long to run the benchmark in seconds')
+    aparser.add_argument('--report-interval', default=1, type=int, metavar='R',
+                         help='periodically report intermediate statistics with a specified interval in seconds. 0 disables intermediate reports')
     aparser.add_argument('--ddl',
                          default=os.path.realpath(os.path.join(os.path.dirname(__file__), "tpcc.sql")),
                          help='Path to the TPC-C DDL SQL file')
@@ -271,14 +282,27 @@ if __name__ == '__main__':
 
     ## WORKLOAD DRIVER!!!
     if not args['no_execute']:
+        
+        BaseManager.register('globalResults', results.Results)
+        manager = BaseManager()
+        manager.start()
+
+        globalResults = manager.globalResults()
+
+        #globalResults.startBenchmark()
+
+        p = multiprocessing.Process(name='resultWatcher', target=resultWatcher, args=(globalResults,))
+        p.start()
+
         if args['clients'] == 1:
-            e = executor.Executor(driver, scaleParameters, stop_on_error=args['stop_on_error'])
+            e = executor.Executor(driver, scaleParameters, globalResults, stop_on_error=args['stop_on_error'])
             driver.executeStart()
             results = e.execute(args['duration'])
             driver.executeFinish()
         else:
-            results = startExecution(driverClass, scaleParameters, args, config)
+            results = startExecution(driverClass, scaleParameters, globalResults, args, config)
         assert results, "No results from execution for %d client!" % args['clients']
+        p.terminate()
         logging.info("Final Results")
         logging.info("Threads: %d", args['clients'])
         logging.info(results.show(load_time, driver, args['clients']))

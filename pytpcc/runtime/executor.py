@@ -44,26 +44,24 @@ from util import *
 
 class Executor:
 
-    def __init__(self, driver, scaleParameters, stop_on_error = False):
+    def __init__(self, driver, scaleParameters, globalResults, stop_on_error = False):
         self.driver = driver
         self.scaleParameters = scaleParameters
         self.stop_on_error = stop_on_error
+        self.global_result = globalResults
     ## DEF
 
     def execute(self, duration):
         global_result = results.Results()
-        assert global_result, "Failed to return a Results object"
+        assert self.global_result, "Failed to return a Results object"
         logging.debug("Executing benchmark for %d seconds" % duration)
         start = global_result.startBenchmark()
         debug = logging.getLogger().isEnabledFor(logging.DEBUG)
-        # Batch Results
-        batch_result = results.Results()
-        start_batch = batch_result.startBenchmark()
         while (time.time() - start) <= duration:
             txn, params = self.doOne()
             global_txn_id = global_result.startTransaction(txn)
-            batch_txn_id = batch_result.startTransaction(txn)
-            if debug: logging.debug("Executing '%s' transaction" % txn)
+            txn_id = self.global_result.startTransaction(txn)
+            if debug: logging.debug("Expecting '%s' transaction" % txn)
             try:
                 (val, retries) = self.driver.executeTransaction(txn, params)
             except KeyboardInterrupt:
@@ -73,28 +71,22 @@ class Executor:
                 traceback.print_exc(file=sys.stdout)
                 print "Aborting some transaction with some error %s %s" % (txn, ex)
                 global_result.abortTransaction(global_txn_id)
-                batch_result.abortTransaction(batch_txn_id)
+                self.global_result.abortTransaction(txn_id)
                 if self.stop_on_error: raise
                 continue
 
             if val is None:
                 global_result.abortTransaction(global_txn_id, retries)
-                batch_result.abortTransaction(batch_txn_id, retries)
+                self.global_result.abortTransaction(txn_id, retries)
                 continue
 
-            batch_result.stopTransaction(batch_txn_id, retries)
+            self.global_result.stopTransaction(txn_id, retries)
             global_result.stopTransaction(global_txn_id, retries)
 
-            if time.time() - start_batch > 900: # every 15 minutes
-                batch_result.stopBenchmark()
-                logging.info(batch_result.show())
-                batch_result = results.Results()
-                start_batch = batch_result.startBenchmark()
-
         ## WHILE
-        batch_result.stopBenchmark()
         global_result.stopBenchmark()
         return (global_result)
+
     ## DEF
 
     def doOne(self):

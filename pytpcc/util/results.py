@@ -59,6 +59,20 @@ class Results:
         logging.debug("Stopping benchmark statistics collection")
         self.stop = time.time()
 
+    def reset(self):
+        """Clear the timers and previous state except for the running txns"""
+        self.txn_id = 0
+        self.txn_counters = {}
+        self.txn_times = {}
+        self.txn_mins = {}
+        self.txn_maxs = {}
+        self.latencies = {}
+        self.txn_retries = {}
+        self.txn_aborts = {}
+        self.retries = {}
+        self.start = None
+        self.stop = None
+
     def startTransaction(self, txn):
         self.txn_id += 1
         id = self.txn_id
@@ -204,7 +218,6 @@ class Results:
             if just_retries:
                 result_doc[txn]['retries']={'retries_ops':freq_dist, 'retries_txn_total':total_retries, 'retries_total_ops':len(just_retries)}
 
-        print(self.txn_counters)
         txn_new_order = self.txn_counters.get('NEW_ORDER', 0)
         ret += "\n" + line # ("-"*total_width)
         #total_rate = "%.02f txn/s" % ((total_cnt / total_time))
@@ -249,6 +262,6 @@ class Results:
                 ('false', 'true')[driver.all_in_one_txn], ('false', 'true')[driver.retry_writes],total_cnt,total_aborts)
         if driver:
             driver.save_result(result_doc)
-        print(result_doc)
+
         return ret.encode('ascii', "ignore")
 ## CLASS
